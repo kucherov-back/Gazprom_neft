@@ -7,21 +7,21 @@
 - Реализована идемпотентная загрузка: дедупликация по sha256, параметр `?force=true`
 - Добавлено поле `dedup_count` в модель Task + миграция
 - Реализован `GET /api/stats` — агрегаты одним SQL-запросом
+- 9 тестов: дедуп, force, upload после ERROR, stats (пустая БД, счётчики, время обработки)
 
 ## Решения и допущения
 - `render_as_batch=True` в Alembic — для корректной работы миграций с SQLite
 - Unique index на `archive_sha256` — защита от race condition
 - Хэш считается от всего содержимого в памяти (файл уже целиком читается в `content`)
 - `force=true` — задача создаётся с `archive_sha256=None`
-- `dedup_count` на Task — атомарный инкремент через SQL UPDATE при каждой дедупликации
+- `dedup_count` на Task — атомарный инкремент через SQL UPDATE
 - Медиана в SQLite — через ROW_NUMBER() + AVG двух средних значений
-- Время обработки считается как `julianday(finished_at) - julianday(created_at)` в секундах
+- Тесты используют in-memory SQLite с dependency override для изоляции
 
 ## Что не успел / сделал бы дальше
-- Тесты на дедуп, force, stats
 - Потоковое хэширование для больших файлов
+- Docker, CI/CD, Poetry
 
 ## Как проверял
-- Ручной тест: загрузка, дедуп, force, разные файлы
-- Проверка `/api/stats`: пустая БД, после загрузок с дедуп
-- `python -m alembic upgrade head` / `downgrade base`
+- `python -m pytest tests/ -v` — 9/9 passed
+- Ручная проверка через скрипты: загрузка, дедуп, force, stats
