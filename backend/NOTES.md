@@ -1,27 +1,29 @@
 # NOTES
 
 ## Что сделано
-- Инициализирован Alembic с async-конфигурацией (aiosqlite)
-- Создан pyproject.toml с фиксированными версиями зависимостей
-- Добавлено поле `archive_sha256` в модель Task + Alembic-миграция
-- Реализована идемпотентная загрузка: дедупликация по sha256, параметр `?force=true`
-- Добавлено поле `dedup_count` в модель Task + миграция
-- Реализован `GET /api/stats` — агрегаты одним SQL-запросом
-- 9 тестов: дедуп, force, upload после ERROR, stats (пустая БД, счётчики, время обработки)
+- Alembic (async, aiosqlite), две миграции: `archive_sha256` и `dedup_count`
+- pyproject.toml с фиксированными версиями зависимостей
+- Идемпотентная загрузка по sha256 с параметром `?force=true`
+- `GET /api/stats` — агрегаты одним SQL-запросом, Pydantic-ответ
+- 9 тестов с изоляцией через in-memory SQLite
 
 ## Решения и допущения
-- `render_as_batch=True` в Alembic — для корректной работы миграций с SQLite
-- Unique index на `archive_sha256` — защита от race condition
-- Хэш считается от всего содержимого в памяти (файл уже целиком читается в `content`)
-- `force=true` — задача создаётся с `archive_sha256=None`
-- `dedup_count` на Task — атомарный инкремент через SQL UPDATE
-- Медиана в SQLite — через ROW_NUMBER() + AVG двух средних значений
-- Тесты используют in-memory SQLite с dependency override для изоляции
+- **Хэш**: считается целиком в памяти — файл уже читается через `await file.read()`. Для больших файлов нужно потоковое чтение чанками с лимитом размера.
+- **Race condition**: unique index на `archive_sha256` + перехват `IntegrityError` с fallback на поиск существующей задачи.
+- **force=true**: задача создаётся с `archive_sha256=None`, не конфликтует с unique constraint.
+- **ERROR-задачи**: перед созданием новой задачи хэш у ERROR-задач с таким же sha256 очищается (`clear_hash_for_errored`).
+- **dedup_count**: атомарный `UPDATE SET dedup_count = dedup_count + 1` — считает сколько раз загрузка была дедуплицирована.
+- **Медиана**: SQLite не имеет встроенной функции — реализована через `ROW_NUMBER()` + `AVG` двух средних.
+- **render_as_batch**: необходим для ALTER TABLE в SQLite.
+- **Happy-path**: не сломан — первичная загрузка работает как раньше, возвращает `{task_id, deduplicated: false}`.
 
 ## Что не успел / сделал бы дальше
-- Потоковое хэширование для больших файлов
-- Docker, CI/CD, Poetry
+- Потоковое хэширование с лимитом размера файла
+- Dockerfile + docker-compose
+- CI/CD (GitHub Actions: lint + тесты)
+- Перевод на Poetry
 
 ## Как проверял
 - `python -m pytest tests/ -v` — 9/9 passed
-- Ручная проверка через скрипты: загрузка, дедуп, force, stats
+- `python -m alembic upgrade head` / `downgrade base`
+- Ручные скрипты: загрузка, дедуп, force, stats на пустой и заполненной БД
