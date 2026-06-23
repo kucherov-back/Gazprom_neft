@@ -7,6 +7,7 @@
 - `GET /api/stats` — агрегаты одним SQL-запросом, Pydantic-ответ
 - 9 тестов с изоляцией через in-memory SQLite
 - Dockerfile + docker-compose.yml
+- Poetry (pyproject.toml + poetry.lock)
 
 ## Решения и допущения
 - **Хэш**: считается целиком в памяти — файл уже читается через `await file.read()`. Для больших файлов нужно потоковое чтение чанками с лимитом размера.
@@ -21,7 +22,6 @@
 ## Что не успел / сделал бы дальше
 - Потоковое хэширование с лимитом размера файла
 - CI/CD (GitHub Actions: lint + тесты)
-- Перевод на Poetry
 
 ## Как проверял
 - `python -m pytest tests/ -v` — 9/9 passed
