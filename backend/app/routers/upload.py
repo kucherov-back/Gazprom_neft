@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.engine import get_session
 from app.db.models import Task, TaskStatus
 from app.db.repositories import TaskRepository
-from app.schemas import UploadResponse
+from app.schemas import UploadResponse, StatsResponse
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ async def classify_zip(
     if not force:
         existing = await repo.get_by_hash(archive_sha256)
         if existing:
+            await repo.increment_dedup_count(existing.id)
             logger.info("Deduplicated upload: task_id=%s, sha256=%s", existing.id, archive_sha256)
             return UploadResponse(task_id=existing.id, deduplicated=True)
 
@@ -56,6 +57,7 @@ async def classify_zip(
         await session.rollback()
         existing = await repo.get_by_hash(archive_sha256)
         if existing:
+            await repo.increment_dedup_count(existing.id)
             logger.info("Race condition resolved: task_id=%s, sha256=%s", existing.id, archive_sha256)
             return UploadResponse(task_id=existing.id, deduplicated=True)
         raise
@@ -63,3 +65,12 @@ async def classify_zip(
     asyncio.create_task(_fake_process(task.id))
     logger.info("Created task: task_id=%s, sha256=%s", task.id, archive_sha256)
     return UploadResponse(task_id=task.id, deduplicated=False)
+
+
+@router.get("/stats", response_model=StatsResponse)
+async def get_stats(
+    session: AsyncSession = Depends(get_session),
+) -> StatsResponse:
+    repo = TaskRepository(session)
+    stats = await repo.get_stats()
+    return StatsResponse(**stats)
