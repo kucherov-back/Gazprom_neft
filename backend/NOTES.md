@@ -6,6 +6,7 @@
 - Идемпотентная загрузка по sha256 с параметром `?force=true`
 - `GET /api/stats` — агрегаты одним SQL-запросом, Pydantic-ответ
 - 9 тестов с изоляцией через in-memory SQLite
+- Dockerfile + docker-compose.yml
 
 ## Решения и допущения
 - **Хэш**: считается целиком в памяти — файл уже читается через `await file.read()`. Для больших файлов нужно потоковое чтение чанками с лимитом размера.
@@ -19,7 +20,6 @@
 
 ## Что не успел / сделал бы дальше
 - Потоковое хэширование с лимитом размера файла
-- Dockerfile + docker-compose
 - CI/CD (GitHub Actions: lint + тесты)
 - Перевод на Poetry
 
@@ -27,3 +27,4 @@
 - `python -m pytest tests/ -v` — 9/9 passed
 - `python -m alembic upgrade head` / `downgrade base`
 - Ручные скрипты: загрузка, дедуп, force, stats на пустой и заполненной БД
+- `docker build` — Docker Desktop не установлен, синтаксис проверен
