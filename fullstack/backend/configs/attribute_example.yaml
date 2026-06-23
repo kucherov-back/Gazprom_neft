@@ -1,0 +1,11 @@
+# Пример формата атрибута. Кнопка экспорта в UI должна собирать ИМЕННО такой YAML-блок.
+- code: "DN"
+  display_name: "Номинальный диаметр"
+  unit: "мм"
+  extract:
+    - type: regex
+      pattern: "\\bD[NY]\\s*([0-9]+)\\b"
+      flags: IGNORECASE
+      postprocess: to_int
+  match:
+    strategy: exact

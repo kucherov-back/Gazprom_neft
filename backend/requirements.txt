@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlalchemy>=2.0
+aiosqlite
+alembic
+python-multipart
+pytest
+pytest-asyncio
+httpx

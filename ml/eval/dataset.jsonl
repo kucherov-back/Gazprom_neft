@@ -1,0 +1,10 @@
+{"requested": "нержавеющая сталь", "suggested": "коррозионностойкая сталь 12Х18Н10Т", "expected": "matched"}
+{"requested": "нержавеющая сталь", "suggested": "AISI 304", "expected": "matched"}
+{"requested": "нержавеющая сталь", "suggested": "углеродистая сталь ст3", "expected": "mismatch"}
+{"requested": "электропривод", "suggested": "электрический привод 220В", "expected": "matched"}
+{"requested": "электропривод", "suggested": "ручной маховик", "expected": "mismatch"}
+{"requested": "ручной привод", "suggested": "маховик в комплекте", "expected": "matched"}
+{"requested": "сальниковое уплотнение", "suggested": "gland packing", "expected": "matched"}
+{"requested": "сальниковое уплотнение", "suggested": "сильфонное уплотнение", "expected": "mismatch"}
+{"requested": "углеродистая сталь", "suggested": "сталь 20", "expected": "matched"}
+{"requested": "углеродистая сталь", "suggested": "carbon steel grade 20", "expected": "matched"}

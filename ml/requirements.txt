@@ -1,0 +1,8 @@
+pydantic>=2
+rapidfuzz
+pyyaml
+pytest
+# для решения, на выбор кандидата:
+# sentence-transformers
+# scikit-learn   # метрики / косинус
+# numpy
