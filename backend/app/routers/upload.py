@@ -1,45 +1,48 @@
-"""
-Роутер загрузки архива.
+"""HTTP-слой: валидация запроса, вызов сервиса, маппинг в ответ."""
 
-Сейчас: каждая загрузка создаёт новую задачу и запускает имитацию обработки.
-Задача — добавить идемпотентность по хэшу и эндпоинт /api/stats.
-"""
-import asyncio
-import uuid
+import logging
 
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.engine import get_session
-from app.db.models import Task, TaskStatus
 from app.db.repositories import TaskRepository
+from app.schemas import StatsResponse, UploadResponse
+from app.services.task_service import TaskService, process_task
 
-router = APIRouter(prefix="/api")
-
-
-async def _fake_process(task_id: str) -> None:
-    """Имитация фоновой обработки (в продакшене — Celery / отдельный воркер)."""
-    await asyncio.sleep(0.1)  # как будто зовём LLM/OCR — это дорого
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api", tags=["tasks"])
 
 
-@router.post("/classify-zip/")
-async def classify_zip(file: UploadFile, session: AsyncSession = Depends(get_session)):
-    repo = TaskRepository(session)
+def get_task_service(session: AsyncSession = Depends(get_session)) -> TaskService:
+    return TaskService(TaskRepository(session))
 
-    content = await file.read()  # noqa: F841 — пригодится для хэша
 
-    # TODO(кандидат): посчитать sha256(content); если задача с таким хэшем уже есть
-    #   и не в статусе ERROR — вернуть её task_id с deduplicated=true, не запуская обработку.
-    #   Параметр ?force=true должен обходить дедуп.
+@router.post("/classify-zip/", response_model=UploadResponse)
+async def classify_zip(
+    file: UploadFile,
+    background_tasks: BackgroundTasks,
+    force: bool = False,
+    service: TaskService = Depends(get_task_service),
+) -> UploadResponse:
+    content = await file.read()
+    if len(content) > settings.max_upload_size_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds {settings.max_upload_size_mb} MB limit",
+        )
 
-    task = Task(
-        id=str(uuid.uuid4()),
-        original_filename=file.filename or "archive.zip",
-        status=TaskStatus.PROCESSING,
+    response, should_process = await service.classify_zip(
+        content=content,
+        filename=file.filename or "archive.zip",
+        force=force,
     )
-    await repo.create(task)
-    asyncio.create_task(_fake_process(task.id))
-    return {"task_id": task.id, "deduplicated": False}
+    if should_process:
+        background_tasks.add_task(process_task, response.task_id)
+    return response
 
 
-# TODO(кандидат): GET /api/stats — агрегаты по задачам ОДНИМ SQL-запросом.
+@router.get("/stats", response_model=StatsResponse)
+async def get_stats(service: TaskService = Depends(get_task_service)) -> StatsResponse:
+    return await service.get_stats()

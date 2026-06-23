@@ -1,19 +1,25 @@
 """
-Модель задачи обработки. Для простоты запуска используется sqlite; в продакшене
-здесь был бы PostgreSQL (SQLAlchemy 2.0 async это поддерживает без изменений модели).
+Модель задачи обработки. Для локального стенда - sqlite (по условию задания, без
+внешней инфраструктуры). Агрегаты статистики в repositories.py используют sqlite-only
+julianday(); для PostgreSQL их нужно переписать на extract(epoch ...)/percentile_cont.
 """
-import enum
-from datetime import datetime
 
-from sqlalchemy import String, DateTime, Enum, Integer
+from datetime import UTC, datetime
+from enum import StrEnum
+
+from sqlalchemy import DateTime, Enum, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+def utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
     pass
 
 
-class TaskStatus(str, enum.Enum):
+class TaskStatus(StrEnum):
     PENDING = "pending"
     PROCESSING = "processing"
     DONE = "done"
@@ -26,8 +32,9 @@ class Task(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     original_filename: Mapped[str] = mapped_column(String(255))
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), default=TaskStatus.PENDING)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-    # TODO(кандидат): добавить поле с хэшем содержимого архива для дедупликации.
-    # archive_sha256: Mapped[str | None] = ...
+    archive_sha256: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
+    dedup_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

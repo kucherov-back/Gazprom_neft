@@ -1,0 +1,17 @@
+.git
+.gitignore
+__pycache__/
+*.py[cod]
+.venv/
+.venv-baseline/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+*.db
+*.sqlite3
+.env
+.env.*
+!.env.example
+tests/
+NOTES.md
