@@ -28,6 +28,4 @@ class Task(Base):
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), default=TaskStatus.PENDING)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-    # TODO(кандидат): добавить поле с хэшем содержимого архива для дедупликации.
-    # archive_sha256: Mapped[str | None] = ...
+    archive_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
