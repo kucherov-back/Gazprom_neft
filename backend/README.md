@@ -1,75 +1,104 @@
-# Тестовое задание — Python Middle Backend Engineer
+# Document Processing - Backend
 
-**Тайм-бокс:** ~60 минут · **Формат:** vibe-coding (LLM-ассистент разрешён)
+Сервис обработки документов: загрузка ZIP-архива создаёт `Task` и запускает фоновую
+обработку (в продакшене - дорогие LLM/OCR-вызовы). Две ключевые возможности:
 
-> Самодостаточная заготовка: небольшой сервис обработки документов, где загрузка
-> ZIP-архива создаёт `Task` и запускает фоновую обработку (в продакшене — дорогие
-> LLM/OCR-вызовы). Запускается локально без внешней инфраструктуры.
+- **Идемпотентная загрузка** по `sha256`: повторная отправка того же архива не плодит
+  задачи и не запускает обработку повторно (`?force=true` обходит дедуп).
+- **Сводная статистика** `GET /api/stats` - агрегаты одним SQL-запросом (в БД, не в Python):
+  количество по статусам, среднее/медианное время обработки, число дедупликаций.
 
-## Контекст
+## Стек
 
-В системе пользователь грузит ZIP через `POST /api/classify-zip/`. Сейчас две проблемы:
+| Слой | Технологии |
+|------|-----------|
+| API | FastAPI 0.116, Uvicorn (ASGI) |
+| Данные | SQLAlchemy 2.0 (async), aiosqlite, Alembic |
+| Валидация/конфиг | Pydantic v2, pydantic-settings |
+| Тесты/линт | pytest + pytest-asyncio, httpx, ruff |
+| Тулинг/деплой | uv, Docker (multi-stage), GitHub Actions |
 
-1. **Нет идемпотентности.** Повторная загрузка того же архива (двойной клик, ретрай
-   формы) запускает обработку заново — лишние деньги на LLM.
-2. **Нет сводной статистики** по задачам.
+> БД - sqlite (по условию задания, локально без внешней инфраструктуры). Слои
+> async-совместимы с PostgreSQL; sqlite-специфична только медиана в статистике
+> (`julianday`), для PG её заменяет `percentile_cont` (см. [NOTES.md](NOTES.md)).
 
-## Задача
-
-### Часть 1 — Идемпотентная загрузка по хэшу (основное)
-
-- Считать `sha256` содержимого ZIP при загрузке.
-- Добавить поле хэша в `Task` (`app/db/models.py`) **+ миграцию Alembic** (приложение создаёт
-  таблицы сам, но миграцию с upgrade/downgrade всё равно приложи — это часть оценки).
-- Если задача с таким хэшем уже есть и не в статусе `ERROR` — вернуть её `task_id` с
-  `deduplicated: true`, **не запуская обработку**.
-- `?force=true` обходит дедуп.
-
-### Часть 2 — Эндпоинт статистики
-
-- `GET /api/stats` — агрегаты **одним SQL-запросом** (агрегация в БД, не в Python):
-  количество задач по статусам, среднее/медианное время обработки завершённых,
-  сколько дедуплицировано. Ответ — Pydantic-модель.
-
-## Где работать
-
-- `app/routers/upload.py` — TODO для дедупа и `/api/stats`
-- `app/db/models.py` — добавить поле + миграция
-- `app/db/repositories.py` — TODO для `get_by_hash` и агрегатов
-- `tests/test_smoke.py` — добавить тесты
-
-## Запуск
+## Быстрый старт
 
 ```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload     # http://127.0.0.1:8000/docs
-PYTHONPATH=. pytest -q
+# Docker - одной командой
+docker compose up --build        # http://127.0.0.1:8000/docs
+
+# Локально через uv
+uv sync
+cp .env.example .env              # при необходимости поправить
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload
 ```
-(Alembic инициализируй сам: `alembic init migrations`, настрой на `sqlite+aiosqlite:///./stand.db`.)
 
-## Критерии приёмки
+## Переменные окружения
 
-- [ ] Поле хэша + Alembic-миграция (upgrade/downgrade).
-- [ ] Повтор того же файла не плодит задачу и не запускает обработку; `?force=true` работает.
-- [ ] `GET /api/stats` отдаёт корректные агрегаты, агрегация в БД.
-- [ ] Pydantic-схемы запрос/ответ, аккуратное логирование.
-- [ ] 1–2 теста (дедуп + формат `/api/stats`).
-- [ ] Git-история с conventional commits + заполненный `NOTES.md`.
+Конфиг через `pydantic-settings` (env + `.env`). Шаблон - [.env.example](.env.example).
 
-## Что оцениваем дополнительно (опиши в `NOTES.md`)
+| Переменная | По умолчанию | Назначение |
+|-----------|--------------|-----------|
+| `DATABASE_URL` | `sqlite+aiosqlite:///./stand.db` | Async DSN |
+| `MAX_UPLOAD_SIZE_MB` | `50` | Лимит размера архива |
+| `PROCESSING_DELAY_SECONDS` | `0.1` | Имитация длительности обработки |
+| `LOG_LEVEL` | `INFO` | Уровень логирования |
+| `DEBUG` | `false` | Echo SQL и подробные ошибки |
 
-- Где считаешь хэш (стрим vs целиком в память — лимит размера файла).
-- Race condition: два одинаковых архива почти одновременно — уникальный индекс/обработка конфликта.
-- Не сломан happy-path загрузки.
+## API
 
-## Бонусы (по желанию, плюс к оценке)
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `POST` | `/api/classify-zip/?force=false` | Загрузка ZIP -> `{task_id, deduplicated}` |
+| `GET` | `/api/stats` | Агрегированная статистика по задачам |
+| `GET` | `/health` | Healthcheck |
 
-Не обязательны для зачёта, но ценятся:
+```bash
+# Первая загрузка -> новая задача
+curl -F "file=@archive.zip" http://127.0.0.1:8000/api/classify-zip/
+# {"task_id":"...","deduplicated":false}
 
-- **Базовый CI/CD** — пайплайн (например GitHub Actions), который хотя бы прогоняет
-  линтер и тесты на push/PR.
-- **Docker** — `Dockerfile` (и при желании `docker-compose.yml`), поднимающий сервис
-  одной командой.
-- **Управление зависимостями** — `requirements.txt` оставлен как стартовая точка;
-  плюсом будет перевод на **Poetry** (`pyproject.toml`).
-- **Нормальные тесты** — не только happy-path: пограничные случаи, фикстуры, изоляция.
+# Повтор того же файла -> та же задача, без обработки
+curl -F "file=@archive.zip" http://127.0.0.1:8000/api/classify-zip/
+# {"task_id":"<тот же>","deduplicated":true}
+
+# Принудительно новая задача
+curl -F "file=@archive.zip" "http://127.0.0.1:8000/api/classify-zip/?force=true"
+
+curl http://127.0.0.1:8000/api/stats
+# {"total":2,"by_status":{...},"avg_processing_seconds":0.1,
+#  "median_processing_seconds":0.1,"deduplicated_count":1}
+```
+
+## Архитектура
+
+Три слоя с чёткой ответственностью:
+
+```
+routers/   HTTP: валидация ввода, маппинг в ответ, фоновые задачи
+services/  бизнес-логика: дедуп, force, разрешение гонок, оркестрация
+db/        repositories - доступ к данным; models - ORM; engine - сессии
+```
+
+- Сессия создаётся на запрос через `Depends(get_session)` (пул на уровне движка).
+- Гонка одинаковых архивов: `unique index` + перехват `IntegrityError` -> повторный дедуп.
+- Глобальные exception-handlers вместо `try/except` в каждом эндпоинте.
+
+## Тесты и линт
+
+```bash
+uv run pytest                                   # 22 теста: дедуп, force, гонка, медиана
+uv run pytest --cov --cov-report=term-missing   # покрытие ~98% (gate в CI: 90%)
+uv run ruff check .                             # линт (PEP 604, isort, bugbear, simplify)
+uv run ruff format .                            # форматирование
+```
+
+## Миграции
+
+```bash
+uv run alembic upgrade head        # накатить
+uv run alembic downgrade base      # откатить
+uv run alembic revision --autogenerate -m "msg"
+```

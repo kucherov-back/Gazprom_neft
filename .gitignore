@@ -2,12 +2,17 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-*/
 venv/
 env/
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Логи
+*.log
+logs/
 
 # Базы/артефакты стендов
 *.db
