@@ -1,5 +1,4 @@
-"""Репозиторий задач."""
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Task, TaskStatus
@@ -22,8 +21,22 @@ class TaskRepository:
         res = await self.session.execute(select(Task))
         return list(res.scalars().all())
 
-    # TODO(кандидат): метод поиска задачи по хэшу архива.
-    # async def get_by_hash(self, archive_sha256: str) -> Task | None: ...
+    async def get_by_hash(self, archive_sha256: str) -> Task | None:
+        stmt = select(Task).where(
+            Task.archive_sha256 == archive_sha256,
+            Task.status != TaskStatus.ERROR,
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
 
-    # TODO(кандидат): агрегаты для /api/stats считаем здесь ОДНИМ SQL-запросом,
-    # а не выгрузкой всех задач в Python.
+    async def clear_hash_for_errored(self, archive_sha256: str) -> None:
+        stmt = (
+            update(Task)
+            .where(
+                Task.archive_sha256 == archive_sha256,
+                Task.status == TaskStatus.ERROR,
+            )
+            .values(archive_sha256=None)
+        )
+        await self.session.execute(stmt)
+        await self.session.commit()

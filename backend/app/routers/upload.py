@@ -1,45 +1,65 @@
-"""
-Роутер загрузки архива.
-
-Сейчас: каждая загрузка создаёт новую задачу и запускает имитацию обработки.
-Задача — добавить идемпотентность по хэшу и эндпоинт /api/stats.
-"""
 import asyncio
+import hashlib
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, UploadFile
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import get_session
 from app.db.models import Task, TaskStatus
 from app.db.repositories import TaskRepository
+from app.schemas import UploadResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
 
 async def _fake_process(task_id: str) -> None:
-    """Имитация фоновой обработки (в продакшене — Celery / отдельный воркер)."""
-    await asyncio.sleep(0.1)  # как будто зовём LLM/OCR — это дорого
+    await asyncio.sleep(0.1)
 
 
-@router.post("/classify-zip/")
-async def classify_zip(file: UploadFile, session: AsyncSession = Depends(get_session)):
+def _compute_sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+@router.post("/classify-zip/", response_model=UploadResponse)
+async def classify_zip(
+    file: UploadFile,
+    force: bool = False,
+    session: AsyncSession = Depends(get_session),
+) -> UploadResponse:
     repo = TaskRepository(session)
+    content = await file.read()
+    archive_sha256 = _compute_sha256(content)
 
-    content = await file.read()  # noqa: F841 — пригодится для хэша
+    if not force:
+        existing = await repo.get_by_hash(archive_sha256)
+        if existing:
+            logger.info("Deduplicated upload: task_id=%s, sha256=%s", existing.id, archive_sha256)
+            return UploadResponse(task_id=existing.id, deduplicated=True)
 
-    # TODO(кандидат): посчитать sha256(content); если задача с таким хэшем уже есть
-    #   и не в статусе ERROR — вернуть её task_id с deduplicated=true, не запуская обработку.
-    #   Параметр ?force=true должен обходить дедуп.
+    await repo.clear_hash_for_errored(archive_sha256)
 
     task = Task(
         id=str(uuid.uuid4()),
         original_filename=file.filename or "archive.zip",
         status=TaskStatus.PROCESSING,
+        archive_sha256=archive_sha256 if not force else None,
     )
-    await repo.create(task)
+
+    try:
+        await repo.create(task)
+    except IntegrityError:
+        await session.rollback()
+        existing = await repo.get_by_hash(archive_sha256)
+        if existing:
+            logger.info("Race condition resolved: task_id=%s, sha256=%s", existing.id, archive_sha256)
+            return UploadResponse(task_id=existing.id, deduplicated=True)
+        raise
+
     asyncio.create_task(_fake_process(task.id))
-    return {"task_id": task.id, "deduplicated": False}
-
-
-# TODO(кандидат): GET /api/stats — агрегаты по задачам ОДНИМ SQL-запросом.
+    logger.info("Created task: task_id=%s, sha256=%s", task.id, archive_sha256)
+    return UploadResponse(task_id=task.id, deduplicated=False)
